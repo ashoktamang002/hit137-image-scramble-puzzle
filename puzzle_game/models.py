@@ -114,3 +114,80 @@ class Orientation:
         if self.quarter_turns:
             result = cv2.rotate(result, _QUARTER_TURN_CODES[self.quarter_turns])
         return result
+
+
+class Tile:
+    """One square piece of the picture.
+
+    A tile remembers where it *belongs* (``home_index``) and how it is
+    currently turned (``orientation``). Where it currently *is* is the
+    board's business, not the tile's, so a tile never needs updating when it
+    is swapped.
+    """
+
+    def __init__(self, home_index: int, pixels: np.ndarray) -> None:
+        """Create a tile.
+
+        Args:
+            home_index: Row-major position this tile occupies in the solved
+                picture.
+            pixels: Square BGR image of the tile in its solved orientation.
+
+        Raises:
+            ValueError: If ``pixels`` is not a square colour image or
+                ``home_index`` is negative.
+        """
+        if home_index < 0:
+            raise ValueError("home_index must not be negative")
+        if pixels.ndim != 3 or pixels.shape[0] != pixels.shape[1]:
+            raise ValueError("a tile must be a square colour image")
+        self._home_index = home_index
+        self._source = pixels.copy()
+        self._source.setflags(write=False)
+        self._orientation = Orientation()
+        self._cached_pixels: Optional[np.ndarray] = None
+
+    # ------------------------------------------------------------------
+    # Read-only state
+    # ------------------------------------------------------------------
+    @property
+    def home_index(self) -> int:
+        """Board position at which this tile is correctly placed."""
+        return self._home_index
+
+    @property
+    def orientation(self) -> Orientation:
+        """Current orientation of the tile."""
+        return self._orientation
+
+    @property
+    def size(self) -> int:
+        """Edge length of the tile in pixels."""
+        return int(self._source.shape[0])
+
+    @property
+    def pixels(self) -> np.ndarray:
+        """The tile's pixels as they currently look (source + orientation)."""
+        if self._cached_pixels is None:
+            self._cached_pixels = self._orientation.apply(self._source)
+        return self._cached_pixels
+
+    # ------------------------------------------------------------------
+    # Mutators - the only ways a tile can change
+    # ------------------------------------------------------------------
+    def rotate_clockwise(self, turns: int = 1) -> None:
+        """Rotate the tile clockwise by ``turns`` x 90 degrees."""
+        self._set_orientation(self._orientation.rotated_clockwise(turns))
+
+    def flip_horizontally(self) -> None:
+        """Mirror the tile left-right."""
+        self._set_orientation(self._orientation.flipped_horizontally())
+
+    def flip_vertically(self) -> None:
+        """Mirror the tile top-bottom."""
+        self._set_orientation(self._orientation.flipped_vertically())
+
+    def _set_orientation(self, orientation: Orientation) -> None:
+        """Store a new orientation and drop the cached render."""
+        self._orientation = orientation
+        self._cached_pixels = None  # invalidate the cached render
