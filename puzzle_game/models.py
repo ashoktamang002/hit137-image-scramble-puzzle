@@ -191,3 +191,126 @@ class Tile:
         """Store a new orientation and drop the cached render."""
         self._orientation = orientation
         self._cached_pixels = None  # invalidate the cached render
+
+
+class Board:
+    """A square grid of tiles and the rules for changing it.
+
+    The board owns the permutation (which tile is at which position) and
+    exposes the three primitive edits the game is built from: swap, rotate
+    and flip. It also knows what "correct" means for a tile.
+    """
+
+    def __init__(self, grid_size: int, tiles: Sequence[Tile]) -> None:
+        """Create a board in the *solved* arrangement.
+
+        Args:
+            grid_size: Number of rows (= columns) of the grid.
+            tiles: ``grid_size ** 2`` tiles where ``tiles[i].home_index == i``.
+
+        Raises:
+            ValueError: If the tiles do not form a complete, ordered grid.
+        """
+        if grid_size < 1:
+            raise ValueError("grid_size must be at least 1")
+        if len(tiles) != grid_size * grid_size:
+            raise ValueError(
+                f"a {grid_size}x{grid_size} board needs {grid_size ** 2} tiles, "
+                f"got {len(tiles)}"
+            )
+        if any(tile.home_index != i for i, tile in enumerate(tiles)):
+            raise ValueError("tiles must be supplied in solved (home) order")
+        self._grid_size = grid_size
+        self._tiles: List[Tile] = list(tiles)
+
+    # ------------------------------------------------------------------
+    # Geometry
+    # ------------------------------------------------------------------
+    @property
+    def grid_size(self) -> int:
+        """Number of rows/columns in the grid."""
+        return self._grid_size
+
+    @property
+    def tile_size(self) -> int:
+        """Edge length of each tile in pixels."""
+        return self._tiles[0].size
+
+    def __len__(self) -> int:
+        return len(self._tiles)
+
+    def __iter__(self) -> Iterator[Tile]:
+        return iter(self._tiles)
+
+    def __getitem__(self, position: int) -> Tile:
+        self._check_position(position)
+        return self._tiles[position]
+
+    def cell(self, position: int) -> Tuple[int, int]:
+        """Return the ``(row, col)`` of a position."""
+        self._check_position(position)
+        return divmod(position, self._grid_size)
+
+    # ------------------------------------------------------------------
+    # Edits
+    # ------------------------------------------------------------------
+    def swap(self, first: int, second: int) -> None:
+        """Exchange the tiles at two different positions."""
+        self._check_position(first)
+        self._check_position(second)
+        if first == second:
+            raise ValueError("cannot swap a position with itself")
+        self._tiles[first], self._tiles[second] = (
+            self._tiles[second],
+            self._tiles[first],
+        )
+
+    def rotate_tile(self, position: int, quarter_turns: int = 1) -> None:
+        """Rotate the tile at ``position`` clockwise by ``quarter_turns``."""
+        self[position].rotate_clockwise(quarter_turns)
+
+    def flip_tile(self, position: int, horizontal: bool = True) -> None:
+        """Mirror the tile at ``position``.
+
+        Args:
+            position: Board position of the tile.
+            horizontal: ``True`` for a left-right flip, ``False`` for
+                top-bottom.
+        """
+        tile = self[position]
+        if horizontal:
+            tile.flip_horizontally()
+        else:
+            tile.flip_vertically()
+
+    # ------------------------------------------------------------------
+    # Correctness
+    # ------------------------------------------------------------------
+    def is_correct(self, position: int) -> bool:
+        """``True`` if the tile at ``position`` is home *and* upright."""
+        tile = self[position]
+        return tile.home_index == position and tile.orientation.is_identity
+
+    def correct_positions(self) -> List[int]:
+        """Positions whose tile is in the right place and orientation."""
+        return [p for p in range(len(self)) if self.is_correct(p)]
+
+    def incorrect_positions(self) -> List[int]:
+        """Positions whose tile still needs moving, rotating or flipping."""
+        return [p for p in range(len(self)) if not self.is_correct(p)]
+
+    @property
+    def incorrect_count(self) -> int:
+        """How many tiles are still incorrect."""
+        return len(self.incorrect_positions())
+
+    @property
+    def is_solved(self) -> bool:
+        """``True`` when every tile is correct."""
+        return self.incorrect_count == 0
+
+    # ------------------------------------------------------------------
+    def _check_position(self, position: int) -> None:
+        """Raise :class:`IndexError` if ``position`` is not on the board."""
+        if not 0 <= position < len(self._tiles):
+            raise IndexError(f"position {position} is outside the board")
