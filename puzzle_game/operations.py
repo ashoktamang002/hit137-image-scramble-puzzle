@@ -206,3 +206,79 @@ DEFAULT_OPERATION_TYPES: Tuple[Type[TileOperation], ...] = (
     RotateOperation,
     FlipOperation,
 )
+
+
+class Scrambler:
+    """Generates the full set of scrambling operations for a round.
+
+    The rules, taken from the assignment brief:
+
+    * every operation type is used at least once per round, the rest are
+      chosen at random, so no two rounds look the same;
+    * the number of operations scales with the grid
+      (``n * (n - 1)`` -> 6, 12 and 20 for 3x3, 4x4 and 5x5);
+    * all operations are generated up front, before any is applied;
+    * **no tile is targeted twice** - each operation is handed a disjoint
+      set of positions, which also guarantees the scrambled board never
+      starts out already solved.
+    """
+
+    def __init__(
+        self,
+        rng: Optional[random.Random] = None,
+        operation_types: Sequence[Type[TileOperation]] = DEFAULT_OPERATION_TYPES,
+    ) -> None:
+        """Create a scrambler.
+
+        Args:
+            rng: Random source; pass a seeded ``random.Random`` for
+                reproducible scrambles (used by the unit tests).
+            operation_types: The kinds of operation available.
+        """
+        self._rng = rng or random.Random()
+        self._types: Tuple[Type[TileOperation], ...] = tuple(operation_types)
+
+    @staticmethod
+    def operation_count(grid_size: int) -> int:
+        """Number of operations for a grid: 6, 12, 20 for sizes 3, 4, 5."""
+        return grid_size * (grid_size - 1)
+
+    def generate(self, grid_size: int) -> List[TileOperation]:
+        """Create all operations for a ``grid_size`` x ``grid_size`` board.
+
+        Raises:
+            ValueError: If the grid is too small to give every operation
+                type its own tiles.
+        """
+        total_tiles = grid_size * grid_size
+        count = self.operation_count(grid_size)
+        cheapest = min(t.tiles_required for t in self._types)
+        needed = sum(t.tiles_required for t in self._types)
+        if count < len(self._types) or needed + (count - len(self._types)) * cheapest > total_tiles:
+            raise ValueError(f"a {grid_size}x{grid_size} grid is too small to scramble")
+
+        # 1. Decide the *types* first: one of each, then random extras that
+        #    still leave enough untouched tiles for the operations to come.
+        chosen: List[Type[TileOperation]] = list(self._types)
+        while len(chosen) < count:
+            still_to_add = count - len(chosen) - 1
+            options = [
+                t for t in self._types
+                if needed + t.tiles_required + still_to_add * cheapest <= total_tiles
+            ]
+            pick = self._rng.choice(options)
+            chosen.append(pick)
+            needed += pick.tiles_required
+        self._rng.shuffle(chosen)
+
+        # 2. Hand each operation its own private tiles from a shuffled pool.
+        free_positions = list(range(total_tiles))
+        self._rng.shuffle(free_positions)
+        return [op_type.create_random(self._rng, free_positions) for op_type in chosen]
+
+    def scramble(self, board: Board) -> List[TileOperation]:
+        """Generate the operations, apply them all, and return them."""
+        operations = self.generate(board.grid_size)
+        for operation in operations:
+            operation.apply(board)
+        return operations
