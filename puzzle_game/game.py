@@ -243,6 +243,59 @@ class PuzzleGame:
         if not 0 <= position < len(self._board):
             raise IndexError(f"position {position} is outside the board")
 
+    # ------------------------------------------------------------------
+    # Hint and Solve buttons
+    # ------------------------------------------------------------------
+    def request_hint(self) -> Optional[Hint]:
+        """Hint button: mark one currently incorrect tile."""
+        if not self.can_request_hint:
+            return None
+        candidates = self._board.incorrect_positions()
+        if not candidates:
+            return None
+        if self._active_hint is not None and len(candidates) > 1:
+            candidates = [p for p in candidates
+                          if p != self._active_hint.tile_position]
+
+        position = self._rng.choice(candidates)
+        home = self._board[position].home_index
+        self._active_hint = Hint(tile_position=position, home_position=home)
+        self._hints_used += 1
+        return self._active_hint
+
+    def solve(self) -> bool:
+        """Solve button: undo every remaining transformation."""
+        if self.is_locked:
+            return False
+        self._undo_history()
+        if not self._board.is_solved:
+            self._restore_board()
+        self._history.clear()
+        self._moves = 0
+        self._selected = None
+        self._active_hint = None
+        self._state = GameState.AUTO_SOLVED
+        return True
+
+    def _undo_history(self) -> None:
+        """Apply the inverse of every recorded operation, newest first."""
+        for operation in reversed(self._history):
+            operation.inverse().apply(self._board)
+
+    def _restore_board(self) -> None:
+        """Safety net: put every tile home and upright directly."""
+        board = self._board
+        for position in range(len(board)):
+            if board[position].home_index != position:
+                source = next(i for i in range(position + 1, len(board))
+                              if board[i].home_index == position)
+                SwapOperation(position, source).apply(board)
+            if board[position].orientation.mirrored:
+                FlipOperation(position, FlipAxis.HORIZONTAL).apply(board)
+            turns = board[position].orientation.quarter_turns
+            if turns:
+                RotateOperation(position, 4 - turns).apply(board)
+
     def __repr__(self) -> str:
         return (f"PuzzleGame({self.grid_size}x{self.grid_size}, moves={self._moves}, "
                 f"incorrect={self.incorrect_count}, state={self._state.name})")
