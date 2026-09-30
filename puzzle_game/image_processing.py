@@ -259,3 +259,43 @@ class GridGeometry:
         if not (0 <= x < self.side and 0 <= y < self.side):
             return None
         return (y // self.tile_size) * self.grid_size + (x // self.tile_size)
+
+
+class TileProcessor:
+    """Cuts an image into tiles and glues a board back into an image."""
+
+    @staticmethod
+    def cut(image: np.ndarray, grid_size: int) -> Board:
+        """Slice a prepared image into a solved :class:`Board`.
+
+        Args:
+            image: Square BGR image whose side is a multiple of ``grid_size``
+                (as produced by :meth:`ImagePreparer.prepare`).
+            grid_size: Tiles per row/column.
+
+        Raises:
+            ValueError: If the image does not divide evenly into square tiles.
+        """
+        height, width = image.shape[:2]
+        if height != width or height % grid_size:
+            raise ValueError(
+                f"a {width}x{height} image does not divide into "
+                f"{grid_size}x{grid_size} square tiles"
+            )
+        size = height // grid_size
+        tiles: List[Tile] = []
+        for row in range(grid_size):
+            for col in range(grid_size):
+                block = image[row * size:(row + 1) * size, col * size:(col + 1) * size]
+                tiles.append(Tile(row * grid_size + col, block))
+        return Board(grid_size, tiles)
+
+    @staticmethod
+    def assemble(board: Board) -> np.ndarray:
+        """Reassemble the board's current tiles into one BGR image."""
+        n = board.grid_size
+        rows = [
+            np.hstack([board[r * n + c].pixels for c in range(n)])
+            for r in range(n)
+        ]
+        return np.vstack(rows)
