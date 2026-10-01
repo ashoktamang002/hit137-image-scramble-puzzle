@@ -148,3 +148,48 @@ class OriginalPanel(ImagePanel):
             self.clear()
 
 
+class PuzzlePanel(ImagePanel):
+    """The transformed picture; decodes the three kinds of click."""
+
+    def __init__(
+        self,
+        master: tk.Misc,
+        side: int,
+        on_left_click: Callable[[int, bool], None],
+        on_right_click: Callable[[int], None],
+    ) -> None:
+        """Create the panel.
+
+        Args:
+            master: Parent widget.
+            side: Edge length of the canvas in pixels.
+            on_left_click: Called as ``callback(position, shift_held)``.
+            on_right_click: Called as ``callback(position)``.
+        """
+        super().__init__(master, side, "Load an image\nto start the puzzle")
+        self._on_left_click = on_left_click
+        self._on_right_click = on_right_click
+        self.bind("<Button-1>", self._handle_left_click)
+        for sequence in RIGHT_CLICK_SEQUENCES:
+            self.bind(sequence, self._handle_right_click)
+
+    def refresh(self, game: PuzzleGame) -> None:
+        """Redraw the scrambled picture with its grid, ticks, selection and hint."""
+        if game.has_image:
+            self.show(GameRenderer.render_puzzle(game), game.geometry)
+        else:
+            self.clear()
+
+    def _handle_left_click(self, event: tk.Event) -> None:
+        """Forward a left click (plain or Shift-held) to the callback."""
+        position = self.position_at(event.x, event.y)
+        if position is not None:                       # clicks off the image are ignored
+            self._on_left_click(position, bool(event.state & _SHIFT_MASK))
+
+    def _handle_right_click(self, event: tk.Event) -> None:
+        """Forward a right click to the callback."""
+        position = self.position_at(event.x, event.y)
+        if position is not None:
+            self._on_right_click(position)
+
+
