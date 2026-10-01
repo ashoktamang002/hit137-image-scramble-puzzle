@@ -290,3 +290,132 @@ class PuzzleApp(tk.Tk):
     # ------------------------------------------------------------------
     # Button / mouse handlers
     # ------------------------------------------------------------------
+    def _on_load_image(self) -> None:
+        """Ask for a file, load it, and start a fresh round."""
+        path = filedialog.askopenfilename(
+            parent=self,
+            title="Choose an image",
+            filetypes=[
+                ("Image files", "*.jpg *.jpeg *.png *.bmp"),
+                ("JPEG", "*.jpg *.jpeg"),
+                ("PNG", "*.png"),
+                ("BMP", "*.bmp"),
+            ],
+        )
+        if not path:                                   # dialog cancelled
+            self._message_var.set("No image chosen - the current puzzle is unchanged.")
+            return
+        try:
+            image = ImageLoader.load(path)
+        except ImageLoadError as error:
+            messagebox.showerror("Cannot open image", str(error), parent=self)
+            self._message_var.set("That file could not be loaded.")
+            return
+        self._start_round(image)
+
+    def _on_reshuffle(self) -> None:
+        """Re-scramble the current picture at the currently selected grid size."""
+        if self._raw_image is not None:
+            self._start_round(self._raw_image)
+
+    def _on_grid_size_changed(self) -> None:
+        """Remind the player that a new grid size applies to the next load."""
+        self._message_var.set(
+            f"{self._grid_var.get()} x {self._grid_var.get()} will be used for the next "
+            "image you load (or press Reshuffle)."
+        )
+
+    def _on_left_click(self, position: int, shift_held: bool) -> None:
+        """Flip the tile when Shift is held, otherwise select or swap it."""
+        result = (
+            self._game.flip_tile(position) if shift_held else self._game.select_tile(position)
+        )
+        self._after_action(result)
+
+    def _on_right_click(self, position: int) -> None:
+        """Rotate the clicked tile 90 degrees clockwise."""
+        self._after_action(self._game.rotate_tile(position))
+
+    def _on_hint(self) -> None:
+        """Spend one hint and redraw both images with the blue markers."""
+        if self._game.use_hint():
+            self._message_var.set(
+                "Hint: the blue circle on the right marks a wrong tile; the one on the "
+                "left shows where it belongs."
+            )
+        self._refresh()
+
+    def _on_solve(self) -> None:
+        """Solve the puzzle instantly and announce it."""
+        result = self._game.solve()
+        self._after_action(result, solved_by_button=True)
+
+    # ------------------------------------------------------------------
+    # Core flow
+    # ------------------------------------------------------------------
+    def _start_round(self, image: np.ndarray) -> None:
+        """Prepare ``image`` and start a round. The old round survives a failure."""
+        grid_size = self._grid_var.get()
+        try:
+            prepared = self._preparer.prepare(image, grid_size)
+            self._game.start_round(prepared, grid_size)
+        except (ValueError, MemoryError, cv2.error) as error:
+            messagebox.showerror(
+                "Cannot start puzzle",
+                f"This image could not be prepared as a {grid_size}x{grid_size} puzzle.\n\n"
+                f"{error}",
+                parent=self,
+            )
+            return
+        self._raw_image = image
+        self._message_var.set("New puzzle ready - restore the picture!")
+        self._refresh()
+
+    def _after_action(self, result: ActionResult, solved_by_button: bool = False) -> None:
+        """Redraw after a player action and announce completion if needed."""
+        if result is ActionResult.IGNORED:
+            return
+        if result is ActionResult.SELECTED:
+            self._message_var.set(
+                "Tile selected - click another tile to swap, or this one to deselect."
+            )
+        elif result is ActionResult.DESELECTED:
+            self._message_var.set("Selection cleared.")
+        else:
+            self._message_var.set("")
+        self._refresh()
+        if result is ActionResult.COMPLETED:
+            self._announce_completion(solved_by_button)
+
+    def _announce_completion(self, solved_by_button: bool) -> None:
+        """Tell the player the picture is restored, once the final view is on screen."""
+        self.update_idletasks()                        # show the finished picture first
+        if solved_by_button:
+            text = "The puzzle has been solved for you."
+            self._message_var.set("Solved. Load another image to keep playing.")
+        else:
+            text = f"Well done! You restored the picture in {self._game.moves} moves."
+            self._message_var.set("Puzzle complete! Load another image to keep playing.")
+        messagebox.showinfo(
+            "Puzzle complete", f"{text}\n\nLoad another image to keep playing.", parent=self
+        )
+
+    def _refresh(self) -> None:
+        """Redraw both panels and update every label and button state."""
+        self._original_panel.refresh(self._game)
+        self._puzzle_panel.refresh(self._game)
+
+        self._moves_var.set(f"Moves: {self._game.moves}")
+        self._incorrect_var.set(f"Tiles incorrect: {self._game.tiles_incorrect}")
+        self._hints_var.set(f"Hints left: {self._game.hints_left}")
+
+        self._hint_button.configure(
+            text=f"Hint ({self._game.hints_left} left)",
+            state="normal" if self._game.can_use_hint else "disabled",
+        )
+        self._solve_button.configure(
+            state="normal" if self._game.accepts_input else "disabled"
+        )
+        self._reshuffle_button.configure(
+            state="normal" if self._raw_image is not None else "disabled"
+        )
