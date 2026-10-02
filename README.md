@@ -12,6 +12,16 @@
 A desktop game: a picture is cut into an N x N grid, scrambled with swaps,
 rotations and flips, and the player restores it with the mouse.
 
+## Run it
+
+```
+pip install -r requirements.txt     
+python main.py
+```
+
+Tkinter ships with Python on Windows/macOS (on Debian/Ubuntu: `sudo apt install python3-tk`).
+Python 3.8 or newer. Sample pictures are in `sample_images/`; you can also load any JPG, PNG or BMP picture from your computer.
+
 ## How to play
 
 | Action | Result |
@@ -46,3 +56,36 @@ so the work flows Ashok -> Rajesh -> Ayun -> Aryan with nobody waiting on a late
 | `puzzle_game/gui.py`, `main.py` | Tkinter window, panels, dialogs, program entry point | Aryan Karki |
 | `outputs/` | Screenshots of the running program | Aryan Karki |
 
+## OOP design
+
+* **Encapsulation** - `Tile`, `Board`, `PuzzleGame` keep their state private and expose it only
+  through read-only properties and a few validated methods. `Orientation` is an immutable value object.
+* **Constructors / methods / class interaction** - `PuzzleApp` -> `PuzzleGame` -> `Board` -> `Tile`;
+  `Scrambler` produces `TileOperation`s that act on a `Board`; `GameRenderer` turns a game into images.
+* **Inheritance + polymorphism (used purposefully)**
+  * `TileOperation` (abstract) -> `SwapOperation`, `RotateOperation`, `FlipOperation`. The scrambler, the
+    player's moves and *Solve* (which replays `inverse()` of the whole history) all treat them uniformly.
+  * `Overlay` (abstract) -> `GridOverlay`, `TickOverlay`, `SelectionOverlay`, `HintOverlay`.
+  * `ImagePanel(tk.Canvas)` (abstract) -> `OriginalPanel`, `PuzzlePanel`, each implementing `refresh()`.
+
+## Design decisions worth knowing
+
+* **Square puzzle.** A 90-degree rotation swaps a tile's width and height, so tiles must be square to
+  fit their cell. The picture is scaled (aspect ratio preserved, never stretched) so its shorter side fills
+  the panel, the longer side is centre-cropped to a square, and the square is cropped or padded (whichever
+  is nearer) to a multiple of the grid size.
+* **Correctness is exact.** A tile is correct when it is at its home position and its `Orientation` is the
+  identity - not a fuzzy pixel comparison - so plain-coloured tiles behave properly.
+* **Scrambling.** `n x (n-1)` operations (6 / 12 / 20), generated all at once, every operation type used
+  at least once per round, and no tile is targeted twice (which also means a round never starts solved).
+  Every puzzle is solvable using only the three player controls.
+* **Robust input.** Cancelled dialogs, unsupported/corrupt files (shown in a message box) and clicks off the
+  image are handled without changing the current round. Non-ASCII file paths work on Windows.
+
+## Tests
+
+```
+python -m unittest -v                  # model, operations, image processing, game, rendering
+xvfb-run -a python -m unittest -v      # headless Linux: also runs the real-window GUI tests
+```
+The GUI tests are skipped automatically when no display is available.
